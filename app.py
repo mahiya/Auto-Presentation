@@ -1,12 +1,11 @@
 import os
-import io
-import time
 import base64
 import hashlib
-from typing import List, Dict, Optional, Any
+from typing import List, Optional, Any
 import streamlit as st
 from dotenv import load_dotenv
 import fitz  # PyMuPDF
+
 try:
     from openai import AzureOpenAI
 except ImportError:
@@ -26,7 +25,7 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION")
 DEPLOY_SUMMARY = os.getenv("AZURE_GPT5_DEPLOYMENT")
-DEPLOY_TTS     = os.getenv("AZURE_TTS_DEPLOYMENT")
+DEPLOY_TTS = os.getenv("AZURE_TTS_DEPLOYMENT")
 DEPLOY_QA = os.getenv("AZURE_GPT5_QA_DEPLOYMENT") or DEPLOY_SUMMARY  # 専用が無ければ要約モデル再利用
 
 # 固定値の定義
@@ -37,6 +36,7 @@ DEFAULT_AUDIO_FORMAT = "mp3"
 if not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_API_KEY:
     st.warning("⚠️ .env に Azure OpenAI の接続情報が設定されていません。サンプルに従って設定してください。")
 
+
 # Initialize Azure client
 def get_azure_client() -> AzureOpenAI:
     return AzureOpenAI(
@@ -44,6 +44,7 @@ def get_azure_client() -> AzureOpenAI:
         api_version=AZURE_OPENAI_API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
     )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Streamlit Page Config
@@ -53,12 +54,7 @@ st.title("AI Auto Presentation")
 st.caption("AIが自動でプレゼンテーション、質疑応答を実施します")
 
 # 言語選択（アップローダ直下）
-lang_label = st.radio(
-    "言語 / Language",
-    ["日本語", "English"],
-    horizontal=True,
-    key="lang_selector"
-)
+lang_label = st.radio("言語 / Language", ["日本語", "English"], horizontal=True, key="lang_selector")
 ui_lang = "ja" if lang_label == "日本語" else "en"
 
 # 言語変更検知とキャッシュクリア
@@ -81,11 +77,13 @@ else:
 
 # レイアウトCSSは不要（デフォルトwideレイアウト利用）
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 def file_bytes_hash(file_bytes: bytes) -> str:
     return hashlib.sha256(file_bytes).hexdigest()
+
 
 def render_pdf_page_pixmap(page, scale: float = 2.0) -> bytes:
     """Render a PDF page to PNG bytes. scale=2.0 is a good balance."""
@@ -93,12 +91,15 @@ def render_pdf_page_pixmap(page, scale: float = 2.0) -> bytes:
     pix = page.get_pixmap(matrix=mat, alpha=False)
     return pix.tobytes("png")
 
+
 def encode_b64_png(png_bytes: bytes) -> str:
     return base64.b64encode(png_bytes).decode("utf-8")
+
 
 def extract_page_text(page) -> str:
     # Basic text extraction; you can switch to blocks/dict for layout-aware summaries
     return page.get_text("text", sort=True) or ""
+
 
 def _responses_content_for(page_text: str, page_image_b64: Optional[str], language: str) -> list:
     if language == "en":
@@ -121,11 +122,9 @@ def _responses_content_for(page_text: str, page_image_b64: Optional[str], langua
         label = "Page extracted text (excerpt)" if language == "en" else "【ページ抽出テキスト（抜粋）】"
         content.append({"type": "input_text", "text": f"{label}\n{clipped}"})
     if page_image_b64:
-        content.append({
-            "type": "input_image",
-            "image_url": {"url": f"data:image/png;base64,{page_image_b64}"}
-        })
+        content.append({"type": "input_image", "image_url": {"url": f"data:image/png;base64,{page_image_b64}"}})
     return content
+
 
 def _chat_content_for(page_text: str, page_image_b64: Optional[str], language: str) -> list:
     if language == "en":
@@ -147,11 +146,9 @@ def _chat_content_for(page_text: str, page_image_b64: Optional[str], language: s
     if clipped.strip():
         user_content.append({"type": "text", "text": f"{excerpt_label}\n{clipped}"})
     if page_image_b64:
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{page_image_b64}"}
-        })
+        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{page_image_b64}"}})
     return user_content
+
 
 def extract_text_from_response(resp: Any) -> str:
     """
@@ -188,6 +185,7 @@ def extract_text_from_response(resp: Any) -> str:
 
     # 4) Fallback to string conversion
     return (str(resp) if resp is not None else "").strip()
+
 
 def build_multimodal_summary(
     client: AzureOpenAI,
@@ -243,6 +241,7 @@ def build_multimodal_summary(
 
     return "（このページの要約を生成できませんでした）"
 
+
 def synthesize_tts(
     client: AzureOpenAI,
     deployment_name: str,
@@ -259,8 +258,8 @@ def synthesize_tts(
     # Non-streaming (fastest path if supported by SDK)
     try:
         resp = client.audio.speech.create(
-            model=deployment_name,   # Azure: deployment name
-            voice=voice,             # alloy / echo / fable / onyx / nova / shimmer ...
+            model=deployment_name,  # Azure: deployment name
+            voice=voice,  # alloy / echo / fable / onyx / nova / shimmer ...
             input=text,
             response_format=response_format,  # important: response_format
         )
@@ -275,6 +274,7 @@ def synthesize_tts(
 
     # Streaming fallback (compat)
     import tempfile
+
     with client.audio.speech.with_streaming_response.create(
         model=deployment_name,
         voice=voice,
@@ -287,11 +287,13 @@ def synthesize_tts(
             tmp.seek(0)
             return tmp.read()
 
+
 def estimate_speech_seconds(text: str, chars_per_sec: float = 7.0, min_sec: float = 3.0) -> float:
     """Rough estimate for JP speech length. Adjust via UI."""
     n = len(text or "")
     est = n / max(chars_per_sec, 1.0)
     return max(est, min_sec)
+
 
 def render_inline_audio(audio_bytes: bytes, fmt: str, autoplay: bool, height: int = 70):
     if not audio_bytes:
@@ -305,12 +307,14 @@ def render_inline_audio(audio_bytes: bytes, fmt: str, autoplay: bool, height: in
     except Exception as e:
         st.error(f"回答音声プレーヤー生成エラー: {e}")
 
+
 def clean_html(raw: str) -> str:
     if not raw:
         return ""
     text = raw
     try:
         from bs4 import BeautifulSoup  # optional
+
         soup = BeautifulSoup(raw, "html.parser")
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
@@ -321,6 +325,7 @@ def clean_html(raw: str) -> str:
         text = re.sub(r"(?s)<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
 
 def split_chunks(text: str, size: int = 800, overlap: int = 100) -> list:
     if not text:
@@ -335,6 +340,7 @@ def split_chunks(text: str, size: int = 800, overlap: int = 100) -> list:
             break
         start = end - overlap
     return chunks
+
 
 def crawl_site(base_url: str, max_pages: int = 5, timeout: int = 8) -> str:
     if not base_url:
@@ -367,6 +373,7 @@ def crawl_site(base_url: str, max_pages: int = 5, timeout: int = 8) -> str:
             continue
     return "\n".join(out_texts)
 
+
 def simple_retrieval(question: str, chunks: list, top_k: int = 5) -> list:
     if not question or not chunks:
         return []
@@ -378,6 +385,7 @@ def simple_retrieval(question: str, chunks: list, top_k: int = 5) -> list:
         scored.append((score, c))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [c for s, c in scored[:top_k] if s > 0]
+
 
 def expand_question_terms(question: str) -> List[str]:
     """簡易的に質問語を拡張（英語/日本語の基本同義語）"""
@@ -403,6 +411,7 @@ def expand_question_terms(question: str) -> List[str]:
         extra.append("ポイント")
     return list(dict.fromkeys(base + extra))
 
+
 def scored_chunks(question: str, chunks: List[str], top_k: int = 5) -> List[str]:
     terms = expand_question_terms(question)
     if not terms or not chunks:
@@ -412,7 +421,7 @@ def scored_chunks(question: str, chunks: List[str], top_k: int = 5) -> List[str]
         lc = c.lower()
         score = 0
         for t in terms:
-            if not t: 
+            if not t:
                 continue
             score += lc.count(t.lower())
         # ボーナス: 先頭出現
@@ -423,6 +432,7 @@ def scored_chunks(question: str, chunks: List[str], top_k: int = 5) -> List[str]
             scored.append((score, c))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [c for s, c in scored[:top_k]]
+
 
 # build_slide_qa_answer をシンプル版（公開情報のみ）+ パラメータ互換フォールバック
 def build_slide_qa_answer(
@@ -470,10 +480,7 @@ def build_slide_qa_answer(
                 if msg:
                     mc = getattr(msg, "content", "")
                     if isinstance(mc, list):
-                        txt = "".join(
-                            (p.get("text", "") if isinstance(p, dict) else str(p))
-                            for p in mc
-                        ).strip()
+                        txt = "".join((p.get("text", "") if isinstance(p, dict) else str(p)) for p in mc).strip()
                     elif isinstance(mc, str):
                         txt = mc.strip()
                     if txt:
@@ -501,9 +508,7 @@ def build_slide_qa_answer(
         if ans:
             return ans
         # 判定: reasoning_tokens が上限近く
-        reasoning_tokens = getattr(
-            getattr(resp, "usage", None), "completion_tokens_details", None
-        )
+        reasoning_tokens = getattr(getattr(resp, "usage", None), "completion_tokens_details", None)
         r_used = 0
         if reasoning_tokens:
             r_used = getattr(reasoning_tokens, "reasoning_tokens", 0)
@@ -576,6 +581,7 @@ def build_slide_qa_answer(
 
     return "（モデルが回答テキストを返しませんでした。デプロイ設定/モデル種類を確認してください）"
 
+
 def init_session_state():
     ss = st.session_state
     ss.setdefault("pdf_hash", None)
@@ -599,10 +605,11 @@ def init_session_state():
     ss.setdefault("company_site_text", "")
     ss.setdefault("company_site_chunks", [])
 
+
 init_session_state()
 # 固定値の定義
 scale = 2.0  # app copy 4.py と同じレンダ倍率
-voice = TTS_VOICE    # 以降もこの値を使用
+voice = TTS_VOICE  # 以降もこの値を使用
 audio_fmt = DEFAULT_AUDIO_FORMAT
 cps = TTS_SPEED
 minsec = 3.0
@@ -645,11 +652,13 @@ if uploaded_file:
                     page_png = b""
                     page_b64 = ""
                 page_text = extract_page_text(p)
-                pages.append({
-                    "image_png": page_png,
-                    "image_b64": page_b64,
-                    "text": page_text,
-                })
+                pages.append(
+                    {
+                        "image_png": page_png,
+                        "image_b64": page_b64,
+                        "text": page_text,
+                    }
+                )
             st.session_state.pages_meta = pages
             st.session_state.page_count = len(pages)
 
@@ -659,7 +668,7 @@ if uploaded_file:
         st.stop()
 
     # PDF解析後（pages_meta 設定直後）全文とチャンクを生成
-    text_all = "\n".join(p.get("text","") for p in st.session_state.pages_meta)
+    text_all = "\n".join(p.get("text", "") for p in st.session_state.pages_meta)
     st.session_state.full_pdf_text = text_all
     st.session_state.full_pdf_chunks = split_chunks(text_all, size=900, overlap=120)
 
@@ -676,20 +685,19 @@ if uploaded_file:
         else:
             st.info("このページのプレビュー画像は生成できませんでした。")
         btn_prev, btn_next = st.columns([1, 1])
+
         def go_prev():
             st.session_state.current_page = max(0, st.session_state.current_page - 1)
             st.session_state.auto_started_at = None
+
         def go_next():
             st.session_state.current_page = min(page_count - 1, st.session_state.current_page + 1)
             st.session_state.auto_started_at = None
+
         with btn_prev:
-            st.button("⬅️ 前へ", on_click=go_prev,
-                      disabled=(st.session_state.current_page == 0),
-                      key=f"prev_btn_{idx}")
+            st.button("⬅️ 前へ", on_click=go_prev, disabled=(st.session_state.current_page == 0), key=f"prev_btn_{idx}")
         with btn_next:
-            st.button("次へ ➡️", on_click=go_next,
-                      disabled=(st.session_state.current_page >= page_count - 1),
-                      key=f"next_btn_{idx}")
+            st.button("次へ ➡️", on_click=go_next, disabled=(st.session_state.current_page >= page_count - 1), key=f"next_btn_{idx}")
 
     with col_right:
         st.subheader("スライド説明")
@@ -722,7 +730,7 @@ if uploaded_file:
         q_key = (idx, qa_question.strip()) if qa_question.strip() else None
 
         # ボタン: 回答生成 / クリア （音声化ボタン削除）
-        qa_btn_cols = st.columns([1,1])
+        qa_btn_cols = st.columns([1, 1])
         btn_gen, btn_clr = qa_btn_cols
 
         def ensure_answer_and_tts():
@@ -757,12 +765,7 @@ if uploaded_file:
             st.session_state.answer_audio_autoplay_key = q_key
 
         with btn_gen:
-            st.button(
-                "回答生成",
-                key=f"qa_gen_{idx}",
-                disabled=not qa_question.strip(),
-                on_click=ensure_answer_and_tts
-            )
+            st.button("回答生成", key=f"qa_gen_{idx}", disabled=not qa_question.strip(), on_click=ensure_answer_and_tts)
 
         def clear_answer():
             if q_key:
@@ -773,12 +776,7 @@ if uploaded_file:
                     st.session_state.answer_audio_autoplay_key = None
 
         with btn_clr:
-            st.button(
-                "クリア",
-                key=f"qa_clr_{idx}",
-                disabled=not q_key,
-                on_click=clear_answer
-            )
+            st.button("クリア", key=f"qa_clr_{idx}", disabled=not q_key, on_click=clear_answer)
 
         current_answer = st.session_state.answer_cache.get(q_key, "") if q_key else ""
 
@@ -786,7 +784,7 @@ if uploaded_file:
             st.markdown("**回答:**")
             st.write(current_answer)
             ans_audio = st.session_state.answer_audio_cache.get(q_key, b"")
-            autoplay_answer = (q_key == st.session_state.answer_audio_autoplay_key)
+            autoplay_answer = q_key == st.session_state.answer_audio_autoplay_key
             if ans_audio:
                 render_inline_audio(ans_audio, audio_fmt, autoplay=autoplay_answer)
             if autoplay_answer:
