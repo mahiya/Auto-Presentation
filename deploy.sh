@@ -7,6 +7,9 @@ APP_PLAN_NAME="aoai-demo-apps-plan"
 APP_NAME="auto-presentation-"$(date +%s)
 SKU='B3'
 
+# リソースグループを作成
+az group create --location $REGION --name $RESOURCE_GROUP
+
 # App Service プランを作成
 az appservice plan create \
     --name $APP_PLAN_NAME \
@@ -22,7 +25,7 @@ az webapp create \
     --resource-group $RESOURCE_GROUP \
     --runtime 'PYTHON:3.11'
 
-# Azure Web Apps の環境変数
+# Azure Web Apps の環境変数を設定
 az webapp config appsettings set \
     --resource-group $RESOURCE_GROUP \
     --name $APP_NAME \
@@ -33,13 +36,13 @@ az webapp config appsettings set \
                "AZURE_GPT5_DEPLOYMENT=$AZURE_GPT5_DEPLOYMENT" \
                "AZURE_TTS_DEPLOYMENT=$AZURE_TTS_DEPLOYMENT"
 
-# スタートアップコマンドを設定する
+# スタートアップコマンドを設定
 az webapp config set \
     --resource-group $RESOURCE_GROUP \
     --name $APP_NAME \
     --startup-file "python -m streamlit run app.py --server.port 8000 --server.address 0.0.0.0"
 
-# アプリケーションをデプロイする
+# アプリケーションをデプロイ
 az webapp up \
     --resource-group $RESOURCE_GROUP \
     --name $APP_NAME \
