@@ -4,7 +4,7 @@
 REGION='japaneast'
 RESOURCE_GROUP="aoai-demo-apps"
 APP_PLAN_NAME="aoai-demo-apps-plan"
-APP_NAME="aoai-demo-apps-"$(date +%s)
+APP_NAME="auto-presentation-"$(date +%s)
 SKU='B3'
 
 # アプリケーションをデプロイする
