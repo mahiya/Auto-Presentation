@@ -83,11 +83,11 @@ git clone https://github.com/mahiya/Auto-Presentation
 cd Auto-Presentation
 
 # 環境変数の設定
-AZURE_OPENAI_ENDPOINT="https://[Azure OpenAI Service のアカウント名].openai.azure.com/"
-AZURE_OPENAI_API_KEY="[Azure OpenAI Service のキー]"
-AZURE_OPENAI_API_VERSION="2025-01-01-preview"
-AZURE_GPT5_DEPLOYMENT="gpt-5"
-AZURE_TTS_DEPLOYMENT="gpt-4o-mini-tts"
+export AZURE_OPENAI_ENDPOINT="https://[Azure OpenAI Service のアカウント名].openai.azure.com/"
+export AZURE_OPENAI_API_KEY="[Azure OpenAI Service のキー]"
+export AZURE_OPENAI_API_VERSION="2025-01-01-preview"
+export AZURE_GPT5_DEPLOYMENT="gpt-5"
+export AZURE_TTS_DEPLOYMENT="gpt-4o-mini-tts"
 
 # デプロイ
 chmod +x deploy.sh
