@@ -4,7 +4,8 @@
 REGION='japaneast'
 RESOURCE_GROUP="aoai-demo-apps"
 APP_PLAN_NAME="aoai-demo-apps-plan"
-APP_NAME="auto-presentation-"$(date +%s)
+APP_NAME_POSTFIX=$(az account show --query "id" --output tsv)
+APP_NAME="auto-presentation-"${APP_NAME_POSTFIX:0:8}
 SKU='B3'
 
 # リソースグループを作成
