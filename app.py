@@ -154,6 +154,38 @@ def extract_text_from_response(resp: Any) -> str:
     """
     Try to extract text robustly from either Responses API result or Chat Completions result.
     """
+
+    def _collect_text(content: Any) -> List[str]:
+        parts: List[str] = []
+        if content is None:
+            return parts
+        if isinstance(content, str):
+            parts.append(content)
+            return parts
+        if isinstance(content, (list, tuple)):
+            for item in content:
+                parts.extend(_collect_text(item))
+            return parts
+        if isinstance(content, dict):
+            text_val = content.get("text")
+            if isinstance(text_val, str) and text_val:
+                parts.append(text_val)
+            elif text_val is not None:
+                parts.extend(_collect_text(text_val))
+            for key in ("content", "message", "value"):
+                if key in content:
+                    parts.extend(_collect_text(content[key]))
+            return parts
+        text_attr = getattr(content, "text", None)
+        if isinstance(text_attr, str) and text_attr:
+            parts.append(text_attr)
+        elif text_attr is not None:
+            parts.extend(_collect_text(text_attr))
+        content_attr = getattr(content, "content", None)
+        if content_attr is not None:
+            parts.extend(_collect_text(content_attr))
+        return parts
+
     # 1) Responses API convenience
     if hasattr(resp, "output_text") and isinstance(resp.output_text, str):
         return resp.output_text.strip()
@@ -163,12 +195,9 @@ def extract_text_from_response(resp: Any) -> str:
         # pydantic model to dict
         data = resp.model_dump() if hasattr(resp, "model_dump") else resp
         if isinstance(data, dict) and "output" in data:
-            pieces = []
+            pieces: List[str] = []
             for item in data.get("output", []):
-                for c in item.get("content", []):
-                    # openai sdk may return {"type": "output_text", "text": "..."}
-                    if c.get("type") in ("output_text", "text") and "text" in c:
-                        pieces.append(c["text"])
+                pieces.extend(_collect_text(item))
             if pieces:
                 return "\n".join(pieces).strip()
     except Exception:
@@ -178,8 +207,20 @@ def extract_text_from_response(resp: Any) -> str:
     try:
         if hasattr(resp, "choices") and resp.choices:
             msg = resp.choices[0].message
-            if msg and getattr(msg, "content", None):
-                return str(msg.content).strip()
+            if msg:
+                msg_content = getattr(msg, "content", None)
+                pieces = _collect_text(msg_content)
+                if pieces:
+                    return "\n".join(piece.strip() for piece in pieces if piece.strip()).strip()
+                msg_text = getattr(msg, "text", None)
+                if isinstance(msg_text, str) and msg_text.strip():
+                    return msg_text.strip()
+        # legacy text attribute on choice directly
+        if hasattr(resp, "choices") and resp.choices:
+            choice = resp.choices[0]
+            choice_text = getattr(choice, "text", None)
+            if isinstance(choice_text, str) and choice_text.strip():
+                return choice_text.strip()
     except Exception:
         pass
 
@@ -479,8 +520,38 @@ def build_slide_qa_answer(
                 msg = getattr(ch, "message", None)
                 if msg:
                     mc = getattr(msg, "content", "")
-                    if isinstance(mc, list):
-                        txt = "".join((p.get("text", "") if isinstance(p, dict) else str(p)) for p in mc).strip()
+
+                    def _fallback_content_to_text(content: Any) -> str:
+                        if content is None:
+                            return ""
+                        if isinstance(content, str):
+                            return content.strip()
+                        if isinstance(content, (list, tuple)):
+                            parts = [_fallback_content_to_text(item) for item in content]
+                            return "\n".join(part for part in parts if part).strip()
+                        if isinstance(content, dict):
+                            text_val = content.get("text")
+                            if isinstance(text_val, str) and text_val.strip():
+                                return text_val.strip()
+                            gathered = []
+                            if text_val is not None:
+                                gathered.append(_fallback_content_to_text(text_val))
+                            for key in ("content", "value"):
+                                if key in content:
+                                    gathered.append(_fallback_content_to_text(content.get(key)))
+                            return "\n".join(val for val in gathered if val).strip()
+                        text_attr = getattr(content, "text", None)
+                        if isinstance(text_attr, str) and text_attr.strip():
+                            return text_attr.strip()
+                        if text_attr is not None:
+                            return _fallback_content_to_text(text_attr)
+                        content_attr = getattr(content, "content", None)
+                        if content_attr is not None:
+                            return _fallback_content_to_text(content_attr)
+                        return ""
+
+                    if isinstance(mc, (list, tuple, dict)):
+                        txt = _fallback_content_to_text(mc)
                     elif isinstance(mc, str):
                         txt = mc.strip()
                     if txt:
@@ -496,13 +567,12 @@ def build_slide_qa_answer(
     # 1st attempt (Chat Completions)
     messages = [
         {"role": "system", "content": system_txt},
-        {"role": "user", "content": [{"type": "text", "text": user_txt}]},
+        {"role": "user", "content": user_txt},
     ]
     try:
         resp = client.chat.completions.create(
             model=deployment_name,
             messages=messages,
-            max_completion_tokens=max_output_tokens,
         )
         ans = _extract_any(resp)
         if ans:
@@ -532,13 +602,12 @@ def build_slide_qa_answer(
                 system_txt_retry = system_txt + " 2文以内で即答してください。長い思考は不要。"
             messages_retry = [
                 {"role": "system", "content": system_txt_retry},
-                {"role": "user", "content": [{"type": "text", "text": user_txt}]},
+                {"role": "user", "content": user_txt},
             ]
             try:
                 resp2 = client.chat.completions.create(
                     model=deployment_name,
                     messages=messages_retry,
-                    max_completion_tokens=min(1024, max_output_tokens * 2),
                 )
                 ans2 = _extract_any(resp2)
                 if ans2:
@@ -559,14 +628,8 @@ def build_slide_qa_answer(
         resp_r = client.responses.create(
             model=deployment_name,
             input=[
-                {
-                    "role": "system",
-                    "content": [{"type": "text", "text": system_txt}],
-                },
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": user_txt}],
-                },
+                {"role": "system", "content": system_txt},
+                {"role": "user", "content": user_txt},
             ],
             max_output_tokens=min(1024, max_output_tokens * 2),
         )
@@ -579,6 +642,7 @@ def build_slide_qa_answer(
         if debug_logs is not None:
             debug_logs.append(f"Responses fallback error: {e}")
 
+    print(debug_logs)
     return "（モデルが回答テキストを返しませんでした。デプロイ設定/モデル種類を確認してください）"
 
 
